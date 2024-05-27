@@ -1,0 +1,16 @@
+{
+  "name": "cluster_blob",
+  "version": "1.0.0",
+  "description": "blob to store media from the url",
+  "main": "index.js",
+  "scripts": {
+    "test": "nodemon index.js"
+  },
+  "author": "wynvern",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "express": "^4.19.2",
+    "nodemon": "^3.1.1"
+  }
+}
