@@ -3,9 +3,19 @@ const app = express();
 const fs = require("node:fs");
 const path = require("node:path");
 const bodyParser = require("body-parser");
+const rateLimit = require("express-rate-limit");
+require("dotenv").config();
+const morgan = require("morgan");
 
 const acceptedTypes = ["png", "gif"];
+const limiter = rateLimit({
+	windowMs: 10 * 60 * 1000,
+	max: 500,
+	message: "Too many requests from this IP, please try again later.",
+});
 
+app.use(morgan("tiny"));
+app.use(limiter);
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(
 	bodyParser.urlencoded({
@@ -30,7 +40,9 @@ function isValidType(type) {
 }
 
 function verifyAuthorization(authToken) {
-	if (authToken !== process.env.PRIVATE_KEY) return false;
+	console.log(authToken);
+
+	if (authToken !== process.env.PRIVATE_KEY || !authToken) return false;
 	return true;
 }
 
@@ -39,7 +51,7 @@ function verifyAuthorization(authToken) {
    auth
 */
 
-app.get("/:type/:uuid", (req, res) => {
+app.get("/blob/:type/:uuid", (req, res) => {
 	const uuid = req.params.uuid;
 	const type = req.params.type;
 	const filePath = path.join(__dirname, "public", type, `${uuid}.png`);
@@ -56,9 +68,15 @@ app.get("/:type/:uuid", (req, res) => {
 	});
 });
 
-app.post("/:type", (req, res) => {
+app.post("/blob/:type", (req, res) => {
 	const type = req.params.type;
 	const uuid = generateRandomUUID();
+
+	if (!req.body.data) {
+		res.status(400).send("The data field is required");
+		return false;
+	}
+
 	const data = Buffer.from(req.body.data, "base64");
 	const filePath = path.join(__dirname, "public", type, `${uuid}.png`);
 
@@ -69,8 +87,9 @@ app.post("/:type", (req, res) => {
 		return false;
 	}
 
-	if (!verifyAuthorization(req.header.authorization)) {
+	if (!verifyAuthorization(req.headers.authorization)) {
 		res.status(401).send("The authorization header is invalid");
+		return false;
 	}
 
 	fs.writeFile(filePath, data, (err) => {
@@ -78,11 +97,15 @@ app.post("/:type", (req, res) => {
 			console.error(err);
 			res.status(500).send("Error writing file");
 		} else {
-			res.send("File saved successfully");
+			res.json({
+				uuid: uuid,
+				urlToMedia: `http://${process.env.HOSTNAME}:${process.env.PORT}/blob/${type}/${uuid}`,
+				status: "success",
+			});
 		}
 	});
 });
 
-app.listen(3001, () => {
-	console.log("Server is running on port 3001");
+app.listen(process.env.PORT, () => {
+	console.log(`Server is running on port ${process.env.PORT}`);
 });
