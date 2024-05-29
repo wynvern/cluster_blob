@@ -6,14 +6,21 @@ const bodyParser = require("body-parser");
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 const morgan = require("morgan");
+const range = require("express-range");
 
-const acceptedTypes = ["png", "gif"];
+const acceptedTypes = ["png", "gif", "mp4"];
+const mimeTypeMap = {
+	png: "image/png",
+	gif: "image/gif",
+	mp4: "video/mp4",
+};
 const limiter = rateLimit({
 	windowMs: 10 * 60 * 1000,
 	max: 500,
 	message: "Too many requests from this IP, please try again later.",
 });
 
+app.use(range());
 app.use(morgan("tiny"));
 app.use(limiter);
 app.use(bodyParser.json({ limit: "50mb" }));
@@ -40,35 +47,71 @@ function isValidType(type) {
 }
 
 function verifyAuthorization(authToken) {
-	console.log(authToken);
-
 	if (authToken !== process.env.PRIVATE_KEY || !authToken) return false;
 	return true;
 }
 
-/*
-   data: Buffer
-   auth
-*/
-
-app.get("/blob/:type/:uuid", (req, res) => {
+app.get("/blob/:type/:uuid", async (req, res) => {
 	const uuid = req.params.uuid;
 	const type = req.params.type;
-	const filePath = path.join(__dirname, "public", type, `${uuid}.png`);
 
-	if (!isValidType(type)) return false;
+	if (!isValidType(type)) {
+		res.status(400).send(
+			`The file type is invalid. Supported types are: ${acceptedTypes.join(
+				", "
+			)}`
+		);
+		return;
+	}
 
-	fs.readFile(filePath, (err, data) => {
-		if (err) {
+	const filePath = path.join(__dirname, "public", type, `${uuid}.${type}`);
+
+	if (!fs.existsSync(filePath)) {
+		res.status(404).send("File not found");
+		return;
+	}
+
+	let range = req.headers.range;
+	if (!range) range = "bytes=0-";
+
+	const fileSize = fs.statSync(filePath).size;
+	const positions = range.replace(/bytes=/, "").split("-");
+	const start = Number.parseInt(positions[0], 10);
+	const end = positions[1] ? Number.parseInt(positions[1], 10) : fileSize - 1;
+
+	if (range) {
+		const readStream = fs.createReadStream(filePath, {
+			start: start,
+			end: end,
+		});
+
+		readStream.on("error", () => {
 			res.status(404).send("File not found");
-		} else {
-			res.writeHead(200, { "Content-Type": "image/png" });
-			res.end(data);
-		}
-	});
+		});
+
+		res.writeHead(206, {
+			"Content-Range": `bytes ${start}-${end}/${fileSize}`,
+			"Accept-Ranges": "bytes",
+			"Content-Length": end - start + 1,
+			"Content-Type": mimeTypeMap[type],
+		});
+		readStream.pipe(res);
+	} else {
+		const readStream = fs.createReadStream(filePath);
+
+		readStream.on("error", () => {
+			res.status(404).send("File not found");
+		});
+
+		res.writeHead(200, {
+			"Content-Length": fileSize,
+			"Content-Type": mimeTypeMap[type],
+		});
+		readStream.pipe(res);
+	}
 });
 
-app.post("/blob/:type", (req, res) => {
+app.post("/blob/:type", async (req, res) => {
 	const type = req.params.type;
 	const uuid = generateRandomUUID();
 
@@ -78,11 +121,13 @@ app.post("/blob/:type", (req, res) => {
 	}
 
 	const data = Buffer.from(req.body.data, "base64");
-	const filePath = path.join(__dirname, "public", type, `${uuid}.png`);
+	const filePath = path.join(__dirname, "public", type, `${uuid}.${type}`);
 
 	if (!isValidType(type)) {
 		res.status(400).send(
-			`The file type is invalid. Supported types are: ${acceptedTypes}`
+			`The file type is invalid. Supported types are: ${acceptedTypes.join(
+				", "
+			)}`
 		);
 		return false;
 	}
@@ -92,20 +137,22 @@ app.post("/blob/:type", (req, res) => {
 		return false;
 	}
 
-	fs.writeFile(filePath, data, (err) => {
-		if (err) {
-			console.error(err);
-			res.status(500).send("Error writing file");
-		} else {
-			res.json({
-				uuid: uuid,
-				urlToMedia: `http://${process.env.HOSTNAME}:${process.env.PORT}/blob/${type}/${uuid}`,
-				status: "success",
-			});
-		}
-	});
+	try {
+		fs.writeFileSync(filePath, data);
+		res.status(200).json({
+			uuid,
+			type,
+			urlToMedia: `http://${process.env.HOSTNAME}:${process.env.PORT}/blob/${type}/${uuid}`,
+			status: "success",
+		});
+	} catch (err) {
+		console.error(err);
+		res.status(500).send("Error writing file");
+	}
 });
 
 app.listen(process.env.PORT, () => {
-	console.log(`Server is running on port ${process.env.PORT}`);
+	console.log(
+		`Server is running on ${process.env.HOSTNAME}:${process.env.PORT}`
+	);
 });
