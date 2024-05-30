@@ -137,6 +137,8 @@ app.post("/blob/:type", async (req, res) => {
 		return false;
 	}
 
+	console.log("Data: ", data);
+
 	try {
 		fs.writeFileSync(filePath, data);
 		res.status(200).json({
