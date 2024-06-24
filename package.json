@@ -4,7 +4,7 @@
   "description": "blob to store media from the url",
   "main": "index.js",
   "scripts": {
-    "test": "nodemon index.js"
+    "start": "nodemon index.js"
   },
   "author": "wynvern",
   "license": "ISC",

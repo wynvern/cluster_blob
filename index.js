@@ -7,13 +7,27 @@ const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 const morgan = require("morgan");
 const range = require("express-range");
+const sharp = require("sharp");
 
-const acceptedTypes = ["png", "gif", "mp4"];
+const acceptedTypes = ["png", "gif", "mp4", "pdf", "txt", "jpg", "jpeg", "webp", "svg", "mp3", "wav", "flac", "ogg", "docx", "ppt"];
 const mimeTypeMap = {
 	png: "image/png",
 	gif: "image/gif",
 	mp4: "video/mp4",
+	pdf: "application/pdf",
+	txt: "text/plain",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	webp: "image/webp",
+	svg: "image/svg+xml",
+	mp3: "audio/mpeg",
+	wav: "audio/wav",
+	flac: "audio/flac",
+	ogg: "audio/ogg",
+	docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	ppt: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
+
 const limiter = rateLimit({
 	windowMs: 10 * 60 * 1000,
 	max: 500,
@@ -52,63 +66,93 @@ function verifyAuthorization(authToken) {
 }
 
 app.get("/blob/:type/:uuid", async (req, res) => {
-	const uuid = req.params.uuid;
-	const type = req.params.type;
+  const uuid = req.params.uuid;
+  const type = req.params.type;
+  let size = req.query.size; // Get the size parameter from the query string
 
-	if (!isValidType(type)) {
-		res.status(400).send(
-			`The file type is invalid. Supported types are: ${acceptedTypes.join(
-				", "
-			)}`
-		);
-		return;
-	}
+  if (size > 8000 || size < 0) {
+	res.status(400).send("The size parameter is invalid. The maximum size is 8000");
+	return;
+  }
 
-	const filePath = path.join(__dirname, "public", type, `${uuid}.${type}`);
+  if (!isValidType(type)) {
+    res
+      .status(400)
+      .send(
+        `The file type is invalid. Supported types are: ${acceptedTypes.join(
+          ", "
+        )}`
+      );
+    return;
+  }
 
-	if (!fs.existsSync(filePath)) {
-		res.status(404).send("File not found");
-		return;
-	}
+  const filePath = path.join(__dirname, "public", type, `${uuid}.${type}`);
 
-	let range = req.headers.range;
-	if (!range) range = "bytes=0-";
+  if (!fs.existsSync(filePath)) {
+    res.status(404).send("File not found");
+    return;
+  }
 
-	const fileSize = fs.statSync(filePath).size;
-	const positions = range.replace(/bytes=/, "").split("-");
-	const start = Number.parseInt(positions[0], 10);
-	const end = positions[1] ? Number.parseInt(positions[1], 10) : fileSize - 1;
+  // Parse the size parameter
+  let width, height;
+  if (size) {
+    [width, height] = size.split("x").map((dim) => parseInt(dim, 10) || null);
+  }
 
-	if (range) {
-		const readStream = fs.createReadStream(filePath, {
-			start: start,
-			end: end,
-		});
+  if (width || height) {
+    // Resize the image with sharp
+    sharp(filePath)
+      .resize(width, height) // This maintains aspect ratio if one of the dimensions is null
+      .toBuffer()
+      .then((data) => {
+        res.writeHead(200, {
+          "Content-Type": mimeTypeMap[type],
+          "Content-Length": data.length,
+        });
+        res.end(data);
+      })
+      .catch((err) => {
+        console.error(err);
+        res.status(500).send("Error processing image");
+      });
+  } else {
+    // Existing logic for serving the file without resizing
+    let range = req.headers.range;
+    if (!range) range = "bytes=0-";
 
-		readStream.on("error", () => {
-			res.status(404).send("File not found");
-		});
+    const fileSize = fs.statSync(filePath).size;
+    const positions = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(positions[0], 10);
+    const end = positions[1] ? parseInt(positions[1], 10) : fileSize - 1;
 
-		res.writeHead(206, {
-			"Content-Range": `bytes ${start}-${end}/${fileSize}`,
-			"Accept-Ranges": "bytes",
-			"Content-Length": end - start + 1,
-			"Content-Type": mimeTypeMap[type],
-		});
-		readStream.pipe(res);
-	} else {
-		const readStream = fs.createReadStream(filePath);
+    if (range) {
+      const readStream = fs.createReadStream(filePath, { start, end });
 
-		readStream.on("error", () => {
-			res.status(404).send("File not found");
-		});
+      readStream.on("error", () => {
+        res.status(404).send("File not found");
+      });
 
-		res.writeHead(200, {
-			"Content-Length": fileSize,
-			"Content-Type": mimeTypeMap[type],
-		});
-		readStream.pipe(res);
-	}
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": end - start + 1,
+        "Content-Type": mimeTypeMap[type],
+      });
+      readStream.pipe(res);
+    } else {
+      const readStream = fs.createReadStream(filePath);
+
+      readStream.on("error", () => {
+        res.status(404).send("File not found");
+      });
+
+      res.writeHead(200, {
+        "Content-Length": fileSize,
+        "Content-Type": mimeTypeMap[type],
+      });
+      readStream.pipe(res);
+    }
+  }
 });
 
 app.post("/blob/:type", async (req, res) => {
@@ -137,7 +181,9 @@ app.post("/blob/:type", async (req, res) => {
 		return false;
 	}
 
-	console.log("Data: ", data);
+	if (!fs.existsSync(path.join(__dirname, "public", type))) {
+		fs.mkdirSync(path.join(__dirname, "public", type), { recursive: true });
+	}
 
 	try {
 		fs.writeFileSync(filePath, data);
