@@ -70,7 +70,7 @@ app.get("/blob/:type/:uuid", async (req, res) => {
 	const type = req.params.type;
 	const size = req.query.size; // Get the size parameter from the query string
 
-	if (size > 8000 || size < 0) {
+	if (size && (size > 8000 || size < 0)) {
 		res.status(400).send(
 			"The size parameter is invalid. The maximum size is 8000"
 		);
@@ -93,7 +93,6 @@ app.get("/blob/:type/:uuid", async (req, res) => {
 		return;
 	}
 
-	// Parse the size parameter
 	let width;
 	let height;
 	if (size) {
@@ -103,9 +102,8 @@ app.get("/blob/:type/:uuid", async (req, res) => {
 	}
 
 	if (width || height) {
-		// Resize the image with sharp
 		sharp(filePath)
-			.resize(width, height) // This maintains aspect ratio if one of the dimensions is null
+			.resize(width, height)
 			.toBuffer()
 			.then((data) => {
 				res.writeHead(200, {
@@ -119,7 +117,6 @@ app.get("/blob/:type/:uuid", async (req, res) => {
 				res.status(500).send("Error processing image");
 			});
 	} else {
-		// Existing logic for serving the file without resizing
 		let range = req.headers.range;
 		if (!range) range = "bytes=0-";
 
