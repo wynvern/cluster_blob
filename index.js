@@ -192,7 +192,7 @@ app.post("/blob/:type", async (req, res) => {
 		res.status(200).json({
 			uuid,
 			type,
-			urlToMedia: `http://${process.env.HOSTNAME}:${process.env.PORT}/blob/${type}/${uuid}`,
+			urlToMedia: `${process.env.THIS_URL}/blob/${type}/${uuid}`,
 			status: "success",
 		});
 	} catch (err) {
@@ -202,7 +202,5 @@ app.post("/blob/:type", async (req, res) => {
 });
 
 app.listen(process.env.PORT, () => {
-	console.log(
-		`Server is running on ${process.env.HOSTNAME}:${process.env.PORT}`
-	);
+	console.log(`Server is running on ${process.env.THIS_URL}`);
 });
