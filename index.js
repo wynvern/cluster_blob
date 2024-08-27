@@ -8,7 +8,7 @@ require("dotenv").config();
 const morgan = require("morgan");
 const range = require("express-range");
 const sharp = require("sharp");
-const acceptedTypes = require("./public/supportedTypes.json");
+const acceptedTypes = require("./supportedTypes.json");
 
 const mimeTypeMap = {
 	png: "image/png",
